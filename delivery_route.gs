@@ -1,8 +1,8 @@
 /**
  * 設定：Google Cloud Consoleで取得したAPIキーと、拠点の住所を入力
  */
-const GOOGLE_MAPS_API_KEY = 'YOUR_API_KEY_HERE';
-const START_POINT = '東京都世田谷区...'; // 拠点の住所を入力
+const GOOGLE_MAPS_API_KEY = 'AIzaSyArZEK07d7b6tzcmvsIpMYmpaTN06vYsHQ';
+const START_POINT = '東京都文京区水道２丁目１２−１０ 北島ビル'; // 拠点の住所を入力
 
 const VALID_AREAS = ["東京都", "神奈川県", "埼玉県", "千葉県", "Tokyo", "Kanagawa", "Saitama", "Chiba"];
 const SPLIT_WAIT_MIN = 30; // この分数以上の待機でルート②を生成
@@ -313,9 +313,8 @@ function processAdvancedDeliveryRoute() {
 
   const dataMatrix = fetchDistanceMatrix(START_POINT, targetShops);
 
-  // ルート① 計算（2-opt → Or-opt の順で最適化）
-  const { route: baseRoute, failedShops } = buildRoute(targetShops, START_POINT, startTime, dataMatrix, waitThresholdMin);
-  const route1 = optimizeOrOpt(optimize2Opt(baseRoute, startTime, dataMatrix), startTime, dataMatrix);
+  // ルート① 計算（マルチスタート: 5通りの出発順序で最良を選択）
+  const { route: route1, failedShops } = multiStartOptimize(targetShops, START_POINT, startTime, dataMatrix, waitThresholdMin);
 
   // シートをクリアして描画
   inputSheet.getRange("A5:H200").clearContent();
@@ -345,6 +344,8 @@ function processAdvancedDeliveryRoute() {
     inputSheet.setRowHeights(2, 4, 25);
     inputSheet.setRowHeights(5, lastDataRow - 5, 25);
   }
+
+  SpreadsheetApp.getActiveSpreadsheet().toast('ルート計算が完了しました ✅', '完了', 5);
 }
 
 /**
@@ -855,6 +856,69 @@ function checkSlots(arrivalMin, slots) {
     if (arrivalMin < slot.start) minWait = Math.min(minWait, slot.start - arrivalMin);
   }
   return (minWait !== Infinity) ? { type: "WAIT", waitTime: minWait } : { type: "FAILED" };
+}
+
+/**
+ * マルチスタート + ILS（反復局所探索）：摂動→再最適化を繰り返して局所最適を脱出
+ */
+function multiStartOptimize(shops, startPos, startTime, dataMatrix, waitThresholdMin, numRestarts = 5) {
+  let bestRoute = null;
+  let bestFailedShops = [];
+  let bestCost = Infinity;
+
+  for (let attempt = 0; attempt < numRestarts; attempt++) {
+    const shuffled = attempt === 0 ? [...shops] : shuffleArray([...shops]);
+    const { route: base, failedShops } = buildRoute(shuffled, startPos, startTime, dataMatrix, waitThresholdMin);
+    let current = optimizeOrOpt(optimize2Opt(base, startTime, dataMatrix), startTime, dataMatrix);
+    let currentCost = evaluateRouteCost(current, startTime, dataMatrix);
+
+    // ILS: 摂動（ルートを大きく崩す）→ 再最適化 を繰り返す
+    for (let iter = 0; iter < 5; iter++) {
+      const perturbed = perturbRoute(current);
+      const reopt = optimizeOrOpt(optimize2Opt(perturbed, startTime, dataMatrix), startTime, dataMatrix);
+      const reoptCost = evaluateRouteCost(reopt, startTime, dataMatrix);
+      if (reoptCost.isValid && reoptCost.totalTime < currentCost.totalTime) {
+        current = reopt;
+        currentCost = reoptCost;
+      }
+    }
+
+    if (currentCost.isValid && currentCost.totalTime < bestCost) {
+      bestRoute = current;
+      bestFailedShops = failedShops;
+      bestCost = currentCost.totalTime;
+    }
+  }
+  return { route: bestRoute || [], failedShops: bestFailedShops };
+}
+
+// ルートを大きく崩す摂動（セグメント入れ替え）：2-opt/Or-optでは到達できない解空間へ
+function perturbRoute(route) {
+  const n = route.length;
+  if (n < 4) return [...route];
+
+  for (let tries = 0; tries < 20; tries++) {
+    const cuts = new Set();
+    while (cuts.size < 3) cuts.add(1 + Math.floor(Math.random() * (n - 1)));
+    const [c1, c2, c3] = [...cuts].sort((a, b) => a - b);
+    // A + C + B + D（セグメントBとCを入れ替え）
+    const newRoute = [
+      ...route.slice(0, c1),
+      ...route.slice(c2, c3),
+      ...route.slice(c1, c2),
+      ...route.slice(c3)
+    ];
+    if (!violatesPickupMemoOrder(newRoute)) return newRoute;
+  }
+  return [...route];
+}
+
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 /**
