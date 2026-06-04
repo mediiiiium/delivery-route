@@ -121,7 +121,10 @@ function onEditTrigger(e) {
   if (sheet.getRange(firstCheckedRow, CHECKBOX_COL).getValue() !== true) return;
 
   var batchId = sheet.getRange(firstCheckedRow, COL_BATCH).getDisplayValue();
-  if (!batchId) return;
+  if (!batchId) {
+    e.source.toast("🚚# を入力してからチェックしてください。", "⚠️ 配送番号なし", 5);
+    return;
+  }
 
   // 同じ🚚#の行を全て取得
   var lastRow = sheet.getLastRow();
@@ -198,7 +201,7 @@ function doPost(e) {
 
 // ─── LINEテスト送信 ───────────────────────────────────────────
 function testSendLine() {
-  var sheetName = "let's";
+  var sheetName = "RIKRI";
   var to = NOTIFICATION_CONFIG[sheetName];
   var message = "テスト送信です";
 

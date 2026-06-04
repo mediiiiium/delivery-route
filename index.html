@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>配達ルート作成</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      background: #f5f5f5;
+      padding: 16px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 18px; margin-bottom: 16px; color: #333; }
+    label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; margin-top: 12px; }
+    textarea, input {
+      width: 100%; padding: 10px; border: 1px solid #ddd;
+      border-radius: 8px; font-size: 14px; background: #fff;
+    }
+    textarea { height: 140px; resize: vertical; }
+    .btn {
+      display: block; width: 100%; padding: 14px;
+      margin-top: 16px; border: none; border-radius: 8px;
+      font-size: 16px; font-weight: bold; cursor: pointer;
+    }
+    .btn-extract { background: #4A90D9; color: white; }
+    .btn-route   { background: #27AE60; color: white; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .shops-box {
+      width: 100%; min-height: 80px; padding: 10px;
+      border: 1px solid #ddd; border-radius: 8px;
+      font-size: 14px; background: #fff; white-space: pre-wrap;
+    }
+    .status {
+      margin-top: 12px; padding: 10px; border-radius: 8px;
+      font-size: 14px; display: none;
+    }
+    .status.loading { background: #FFF9C4; color: #856404; display: block; }
+    .status.success { background: #D4EDDA; color: #155724; display: block; }
+    .status.error   { background: #F8D7DA; color: #721C24; display: block; }
+  </style>
+</head>
+<body>
+  <h1>🚚 配達ルート作成</h1>
+
+  <label>① メッセージをペースト</label>
+  <textarea id="message" placeholder="LINEやFacebookのメッセージをここに貼り付けてください"></textarea>
+  <button class="btn btn-extract" id="extractBtn" onclick="extractShops()">店名を抽出する</button>
+
+  <label>② 抽出された店名（編集可）</label>
+  <div class="shops-box" id="shops" contenteditable="true"></div>
+
+  <label>③ 出発日時（任意）</label>
+  <input type="datetime-local" id="startTime">
+
+  <button class="btn btn-route" id="routeBtn" onclick="calcRoute()" disabled>ルートを計算する</button>
+
+  <div class="status" id="status"></div>
+
+  <script>
+    function setStatus(type, msg) {
+      var el = document.getElementById('status');
+      el.className = 'status ' + type;
+      el.textContent = msg;
+    }
+
+    function extractShops() {
+      var message = document.getElementById('message').value.trim();
+      if (!message) { setStatus('error', 'メッセージを入力してください'); return; }
+
+      var btn = document.getElementById('extractBtn');
+      btn.disabled = true;
+      setStatus('loading', '店名を抽出中...');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('shops').textContent = result;
+          document.getElementById('routeBtn').disabled = false;
+          setStatus('success', '店名を抽出しました。内容を確認・編集してからルートを計算してください。');
+          btn.disabled = false;
+        })
+        .withFailureHandler(function(err) {
+          setStatus('error', 'エラー: ' + err.message);
+          btn.disabled = false;
+        })
+        .extractShopsFromMessage(message);
+    }
+
+    function calcRoute() {
+      var shops = document.getElementById('shops').textContent.trim();
+      if (!shops || shops === 'なし') { setStatus('error', '店名がありません'); return; }
+
+      var startTime = document.getElementById('startTime').value;
+      var btn = document.getElementById('routeBtn');
+      btn.disabled = true;
+      setStatus('loading', 'ルートを計算中...（1〜2分かかります）');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            setStatus('success', '✅ ルート計算完了！スプレッドシートのplanシートを確認してください。');
+          } else {
+            setStatus('error', 'エラー: ' + result.error);
+          }
+          btn.disabled = false;
+        })
+        .withFailureHandler(function(err) {
+          setStatus('error', 'エラー: ' + err.message);
+          btn.disabled = false;
+        })
+        .runRouteFromWebApp(shops, startTime);
+    }
+  </script>
+</body>
+</html>
