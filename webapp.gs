@@ -1,6 +1,40 @@
 /**
- * GAS Webアプリ：メッセージから店名抽出 → ルート計算
+ * GAS Webアプリ：メッセージから店名抽出 → ルート計算 → 配達ログ書き込み
+ *
+ * キーワード → シート・Brewery対応
+ * りくり → RIKRI sheet / Brewery: RIKRI
+ * レッツ → let's sheet / Brewery: Let's Beer Works
+ * カンパイ → kanpai sheet / Brewery: カンパイ！ブルーイング
  */
+
+// ─── キーワード設定 ───────────────────────────────────────────
+var SECTION_CONFIG = {
+  'りくり': { sheet: 'RIKRI',   brewery: 'RIKRI',             extractKeg: true  },
+  'レッツ':  { sheet: "let's",  brewery: "Let's Beer Works",  extractKeg: false },
+  'カンパイ': { sheet: 'kanpai', brewery: 'カンパイ！ブルーイング', extractKeg: false }
+};
+
+// ─── セクション分割ヘルパー ────────────────────────────────────
+function parseSections_(message) {
+  var keywords = Object.keys(SECTION_CONFIG);
+  var positions = [];
+
+  keywords.forEach(function(kw) {
+    var idx = message.indexOf(kw);
+    if (idx !== -1) positions.push({ kw: kw, idx: idx });
+  });
+
+  positions.sort(function(a, b) { return a.idx - b.idx; });
+
+  var sections = {};
+  positions.forEach(function(pos, i) {
+    var start = pos.idx + pos.kw.length;
+    var end = (i + 1 < positions.length) ? positions[i + 1].idx : message.length;
+    sections[pos.kw] = message.substring(start, end).trim();
+  });
+
+  return sections;
+}
 
 // ─── Webアプリのエントリーポイント ────────────────────────────
 function doGet() {
@@ -9,38 +43,18 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ─── Claude APIで店名を抽出（セクション分割対応） ──────────────
+// ─── Claude APIで店名を抽出（ルート計算用） ───────────────────
 function extractShopsFromMessage(message) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY が設定されていません');
 
-  // りくり・はいたつ でセクションを分割
-  var rikuriIdx = message.indexOf('りくり');
-  var haitasuIdx = message.indexOf('はいたつ');
-
-  var rikuriText = '';
-  var haitasuText = '';
-
-  if (rikuriIdx !== -1 && haitasuIdx !== -1) {
-    if (rikuriIdx < haitasuIdx) {
-      rikuriText  = message.substring(rikuriIdx + 3, haitasuIdx).trim();
-      haitasuText = message.substring(haitasuIdx + 4).trim();
-    } else {
-      haitasuText = message.substring(haitasuIdx + 4, rikuriIdx).trim();
-      rikuriText  = message.substring(rikuriIdx + 3).trim();
-    }
-  } else if (rikuriIdx !== -1) {
-    rikuriText  = message.substring(rikuriIdx + 3).trim();
-  } else if (haitasuIdx !== -1) {
-    haitasuText = message.substring(haitasuIdx + 4).trim();
-  }
-
+  var sections = parseSections_(message);
   var results = [];
 
   // りくりセクション → @RIKRI BREWING + *店名
-  if (rikuriText) {
-    var rikuriShops = callClaude_(rikuriText, apiKey);
-    var withStar = rikuriShops.split('\n')
+  if (sections['りくり']) {
+    var shops = callClaude_(sections['りくり'], apiKey);
+    var withStar = shops.split('\n')
       .map(function(l) { return l.trim(); })
       .filter(function(l) { return l && l !== 'なし'; })
       .map(function(l) { return (l.startsWith('@') || l.startsWith('*')) ? l : '*' + l; })
@@ -49,66 +63,188 @@ function extractShopsFromMessage(message) {
     if (withStar) results.push(withStar);
   }
 
-  // はいたつセクション → 箱舟 + 店名
-  if (haitasuText) {
-    var haitasuShops = callClaude_(haitasuText, apiKey);
-    var shops = haitasuShops.split('\n')
-      .map(function(l) { return l.trim(); })
-      .filter(function(l) { return l && l !== 'なし'; })
-      .join('\n');
-    results.push('箱舟（はこぶね）');
-    if (shops) results.push(shops);
-  }
+  // レッツ・カンパイセクション → 箱舟 + 店名
+  ['レッツ', 'カンパイ'].forEach(function(kw) {
+    if (sections[kw]) {
+      var shops = callClaude_(sections[kw], apiKey);
+      var lines = shops.split('\n')
+        .map(function(l) { return l.trim(); })
+        .filter(function(l) { return l && l !== 'なし'; })
+        .join('\n');
+      if (results.indexOf('箱舟（はこぶね）') === -1) results.push('箱舟（はこぶね）');
+      if (lines) results.push(lines);
+    }
+  });
 
   return results.join('\n');
 }
 
-// ─── Claude API呼び出し（内部共通処理） ────────────────────────
-function callClaude_(text, apiKey) {
+// ─── 配達ログに書き込む ────────────────────────────────────────
+function writeToDeliveryLog(message, startTimeStr) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  var logId  = PropertiesService.getScriptProperties().getProperty('KEG_DELIVERY_LOG_ID');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY が設定されていません');
+  if (!logId)  throw new Error('KEG_DELIVERY_LOG_ID が設定されていません');
 
+  var ss = SpreadsheetApp.openById(logId);
+  var sections = parseSections_(message);
+  var written = 0;
+
+  Object.keys(sections).forEach(function(kw) {
+    var config = SECTION_CONFIG[kw];
+    if (!config || !sections[kw]) return;
+
+    var sheet = ss.getSheetByName(config.sheet);
+    if (!sheet) return;
+
+    // Claude で配達データをJSON抽出
+    var rows = extractDeliveryRows_(sections[kw], apiKey, config.extractKeg);
+    if (rows.length === 0) return;
+
+    // 出発日時の日付を使用（未入力の場合は今日）
+    var baseDate = startTimeStr ? new Date(startTimeStr) : new Date();
+    var today = Utilities.formatDate(baseDate, Session.getScriptTimeZone(), 'yyyyMMdd');
+    var colC = sheet.getRange('C:C').getValues();
+    var maxSeq = 0;
+    colC.forEach(function(cell) {
+      var match = String(cell[0]).match(/^(\d{8})-(\d+)$/);
+      if (match && match[1] === today) maxSeq = Math.max(maxSeq, parseInt(match[2]));
+    });
+
+    // Destination → 🚚# のマッピング（同じDestinationは同じ番号）
+    var destToBatch = {};
+    rows.forEach(function(row) {
+      if (!destToBatch[row.destination]) {
+        maxSeq++;
+        destToBatch[row.destination] = today + '-' + maxSeq;
+      }
+      row.batchId = destToBatch[row.destination];
+    });
+
+    // E列で実際のデータがある最終行を探す
+    var colE = sheet.getRange('E:E').getValues();
+    var lastDataRow = 1;
+    for (var r = colE.length - 1; r >= 0; r--) {
+      if (colE[r][0] !== '') { lastDataRow = r + 1; break; }
+    }
+
+    rows.forEach(function(row) {
+      var writeRow = lastDataRow + 1;
+      lastDataRow++;
+      sheet.getRange(writeRow, 2).setValue(config.brewery);  // B: Brewery
+      sheet.getRange(writeRow, 3).setValue(row.batchId);     // C: 🚚#
+      sheet.getRange(writeRow, 5).setValue(row.destination); // E: Destination
+      sheet.getRange(writeRow, 6).setValue(row.beer);        // F: Beer name
+      sheet.getRange(writeRow, 7).setValue(row.amount || '1'); // G: amount
+      sheet.getRange(writeRow, 8).setValue(row.keg);         // H: keg#
+      sheet.getRange(writeRow, 4).insertCheckboxes();        // D: チェックボックス
+      sheet.getRange(writeRow, 1, 1, 9).setBackground(null); // 白背景にリセット
+      written++;
+    });
+  });
+
+  return { success: true, written: written };
+}
+
+// ─── デバッグ用（スクリプトエディタから直接実行） ──────────────
+function debugWriteToDeliveryLog() {
+  var logId = PropertiesService.getScriptProperties().getProperty('KEG_DELIVERY_LOG_ID');
+  console.log('KEG_DELIVERY_LOG_ID:', logId);
+
+  if (!logId) { console.log('IDが設定されていません'); return; }
+
+  try {
+    var ss = SpreadsheetApp.openById(logId);
+    console.log('スプレッドシート名:', ss.getName());
+    console.log('シート一覧:', ss.getSheets().map(function(s) { return s.getName(); }).join(', '));
+  } catch(e) {
+    console.log('スプレッドシートアクセスエラー:', e.message);
+  }
+
+  // テストメッセージで実行
+  var testMessage = 'レッツ\n天沼酒場@荻窪\n　HEFE WEISSE 15L × 1本';
+  console.log('テストメッセージ:', testMessage);
+  var sections = parseSections_(testMessage);
+  console.log('セクション:', JSON.stringify(sections));
+
+  var result = writeToDeliveryLog(testMessage);
+  console.log('結果:', JSON.stringify(result));
+}
+
+// ─── Claude で配達行データをJSON抽出 ─────────────────────────
+function extractDeliveryRows_(text, apiKey, extractKeg) {
+  var kegRule = extractKeg
+    ? 'keg欄：keg番号（例：#12→"12"）またはONEWAY/one way→"one way"、なければ空文字'
+    : 'keg欄：ONEWAY/one wayの記載があれば"one way"、なければ空文字';
+
+  var prompt = [
+    'あなたはクラフトビール配達業務のアシスタントです。',
+    '以下のメッセージから配達データを抽出してJSON配列で返してください。',
+    '',
+    '抽出するフィールド：',
+    '- destination: 店舗名（@場所は除く、・記号も除く）',
+    '- beer: ビール名（サイズ表記15Lなどは除く）',
+    '- amount: 本数（数字のみ。記載がなければ"1"）',
+    '- keg: ' + kegRule,
+    '',
+    '出力形式（JSON配列のみ、他のテキスト不要）：',
+    '[{"destination":"店名","beer":"ビール名","amount":"1","keg":""}]',
+    '',
+    'メッセージ：',
+    text
+  ].join('\n');
+
+  var response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json'
+    },
+    payload: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }]
+    }),
+    muteHttpExceptions: true
+  });
+
+  var result = JSON.parse(response.getContentText());
+  if (result.error) throw new Error(result.error.message);
+
+  var responseText = result.content[0].text.trim();
+  // JSON部分だけ抽出
+  var match = responseText.match(/\[[\s\S]*\]/);
+  if (!match) return [];
+  try { return JSON.parse(match[0]); } catch(e) { return []; }
+}
+
+// ─── Claude API呼び出し（店名抽出用） ────────────────────────
+function callClaude_(text, apiKey) {
   var prompt = [
     'あなたはクラフトビール配達業務のアシスタントです。',
     '以下のメッセージから配達先の店舗名だけを抽出してください。',
     '',
-    'メッセージには以下のフォーマットがあります：',
-    '',
     '【@ の使われ方は2種類ある。必ず区別すること】',
     '  ① 行の先頭に @ → ピックアップ優先マーク。@ごと抽出する',
-    '     例：「@RIKRI BREWING」→「@RIKRI BREWING」',
     '  ② 店舗名の後ろに @場所 → 場所を示すだけ。@以降を削除して店舗名だけ抽出',
-    '     例：「アイリッシュパブタラモア@代々木八幡」→「アイリッシュパブタラモア」',
     '     例：「天沼酒場@荻窪」→「天沼酒場」',
     '',
     '【フォーマットA：箇条書き形式】',
-    '  ・店舗名@場所　※メモ',
-    '  　ビール名×本数　← 除外',
-    '  例：「・ビアボム@西新宿」→「ビアボム」',
+    '  ・店舗名@場所　→ 店舗名のみ抽出',
     '',
     '【フォーマットB：シンプル形式】',
-    '  店舗名@場所',
-    '  　ビール名×本数　← 除外',
-    '  例：「天沼酒場@荻窪」→「天沼酒場」',
+    '  店舗名@場所　→ 店舗名のみ抽出',
     '',
     '【フォーマットC：住所ブロック形式】',
-    '  〒郵便番号／都道府県／番地／ビル名',
-    '  店舗名　← これだけ抽出',
-    '  （空行）',
-    '  ビール名・keg情報　← 除外',
+    '  〒住所ブロックの直後の行が店舗名',
     '  例：「セントラル経堂B1Fマジックアワー」→「マジックアワー」',
     '',
-    '【フォーマットD：@*記号形式（行頭に@または*）】',
-    '  @店舗名　← @をつけたまま抽出（ピックアップ優先）',
-    '  *店舗名　← *をつけたまま抽出（後回し）',
-    '',
     '除外するもの：',
-    '- 店舗名の後の@場所（例：@荻窪、@渋谷）',
-    '- 住所情報（〒、日本、都道府県、市区町村、番地、ビル名）',
-    '- ビール名・keg情報（ONEWAY、#番号など）',
-    '- 挨拶・数量・日時・メモ（※〜）・記号（・）',
+    '- 店舗名の後の@場所、住所情報、ビール名、keg情報（ONEWAY・#番号）',
+    '- 挨拶・数量・日時・メモ・記号（・）',
     '',
-    '出力ルール：',
-    '- 1行1店舗',
-    '- 該当なければ「なし」',
+    '出力ルール：1行1店舗。該当なければ「なし」',
     '',
     'メッセージ：',
     text
@@ -131,7 +267,6 @@ function callClaude_(text, apiKey) {
 
   var result = JSON.parse(response.getContentText());
   if (result.error) throw new Error(result.error.message);
-
   return result.content[0].text.trim();
 }
 

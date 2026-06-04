@@ -2,10 +2,15 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>配達ルート作成</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="配達ルート">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" id="touch-icon">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
       background: #f5f5f5;
@@ -13,19 +18,21 @@
       max-width: 600px;
       margin: 0 auto;
     }
-    h1 { font-size: 18px; margin-bottom: 16px; color: #333; }
-    label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; margin-top: 12px; }
-    textarea, input {
-      width: 100%; padding: 10px; border: 1px solid #ddd;
-      border-radius: 8px; font-size: 14px; background: #fff;
+    h1 { font-size: 20px; margin-bottom: 16px; color: #333; }
+    label { display: block; font-size: 15px; color: #666; margin-bottom: 4px; margin-top: 14px; }
+    textarea, input, select {
+      width: 100%; padding: 12px; border: 1px solid #ddd;
+      border-radius: 8px; font-size: 16px !important; background: #fff;
+      touch-action: manipulation; /* ダブルタップズーム防止 */
     }
-    textarea { height: 140px; resize: vertical; }
+    textarea { height: 160px; resize: vertical; }
     .btn {
-      display: block; width: 100%; padding: 14px;
-      margin-top: 16px; border: none; border-radius: 8px;
-      font-size: 16px; font-weight: bold; cursor: pointer;
+      display: block; width: 100%; padding: 16px;
+      margin-top: 10px; border: none; border-radius: 8px;
+      font-size: 17px; font-weight: bold; cursor: pointer;
     }
     .btn-extract { background: #4A90D9; color: white; }
+    .btn-log     { background: #E67E22; color: white; }
     .btn-route   { background: #27AE60; color: white; }
     .btn:disabled { background: #ccc; cursor: not-allowed; }
     .shops-box {
@@ -34,32 +41,80 @@
       font-size: 14px; background: #fff; white-space: pre-wrap;
     }
     .status {
-      margin-top: 12px; padding: 10px; border-radius: 8px;
-      font-size: 14px; display: none;
+      margin-top: 12px; padding: 12px; border-radius: 8px;
+      font-size: 15px; display: none;
     }
     .status.loading { background: #FFF9C4; color: #856404; display: block; }
     .status.success { background: #D4EDDA; color: #155724; display: block; }
     .status.error   { background: #F8D7DA; color: #721C24; display: block; }
+    .divider { margin: 16px 0; border-top: 1px solid #ddd; }
   </style>
 </head>
 <body>
   <h1>🚚 配達ルート作成</h1>
 
   <label>① メッセージをペースト</label>
-  <textarea id="message" placeholder="LINEやFacebookのメッセージをここに貼り付けてください"></textarea>
+  <textarea id="message" placeholder="りくり / レッツ / カンパイ をキーワードに使用&#10;LINEやFacebookのメッセージを貼り付けてください"></textarea>
   <button class="btn btn-extract" id="extractBtn" onclick="extractShops()">店名を抽出する</button>
 
   <label>② 抽出された店名（編集可）</label>
   <div class="shops-box" id="shops" contenteditable="true"></div>
 
   <label>③ 出発日時（任意）</label>
-  <input type="datetime-local" id="startTime">
+  <div style="display:flex; gap:8px;">
+    <input type="date" id="startDate" style="flex:1;">
+    <input type="time" id="startTime" step="900" style="flex:1;">
+  </div>
 
   <button class="btn btn-route" id="routeBtn" onclick="calcRoute()" disabled>ルートを計算する</button>
+
+  <div class="divider"></div>
+
+  <button class="btn btn-log" id="logBtn" onclick="writeLog()" disabled>📋 配達ログに書き込む</button>
 
   <div class="status" id="status"></div>
 
   <script>
+    function getStartTime() {
+      var date = document.getElementById('startDate').value;
+      var time = document.getElementById('startTime').value;
+      if (!date || !time) return '';
+      return date + 'T' + time;
+    }
+
+    // iOSズーム防止：viewportをJSで強制上書き
+    (function() {
+      var meta = document.querySelector('meta[name="viewport"]');
+      if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; document.head.appendChild(meta); }
+      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+      // 入力欄のフォントサイズを強制的に16px以上に
+      document.querySelectorAll('textarea, input, select').forEach(function(el) {
+        el.style.fontSize = '16px';
+      });
+    })();
+
+    // ホーム画面アイコン生成（iOS用）
+    (function() {
+      var canvas = document.createElement('canvas');
+      canvas.width = 180; canvas.height = 180;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#E67E22';
+      ctx.beginPath();
+      ctx.moveTo(30, 0); ctx.lineTo(150, 0);
+      ctx.quadraticCurveTo(180, 0, 180, 30);
+      ctx.lineTo(180, 150);
+      ctx.quadraticCurveTo(180, 180, 150, 180);
+      ctx.lineTo(30, 180);
+      ctx.quadraticCurveTo(0, 180, 0, 150);
+      ctx.lineTo(0, 30);
+      ctx.quadraticCurveTo(0, 0, 30, 0);
+      ctx.fill();
+      ctx.font = '110px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🚚', 90, 130);
+      document.getElementById('touch-icon').href = canvas.toDataURL('image/png');
+    })();
+
     function setStatus(type, msg) {
       var el = document.getElementById('status');
       el.className = 'status ' + type;
@@ -78,7 +133,8 @@
         .withSuccessHandler(function(result) {
           document.getElementById('shops').textContent = result;
           document.getElementById('routeBtn').disabled = false;
-          setStatus('success', '店名を抽出しました。内容を確認・編集してからルートを計算してください。');
+          document.getElementById('logBtn').disabled = false;
+          setStatus('success', '店名を抽出しました。確認・編集してからルート計算または配達ログへ書き込んでください。');
           btn.disabled = false;
         })
         .withFailureHandler(function(err) {
@@ -92,7 +148,7 @@
       var shops = document.getElementById('shops').textContent.trim();
       if (!shops || shops === 'なし') { setStatus('error', '店名がありません'); return; }
 
-      var startTime = document.getElementById('startTime').value;
+      var startTime = getStartTime();
       var btn = document.getElementById('routeBtn');
       btn.disabled = true;
       setStatus('loading', 'ルートを計算中...（1〜2分かかります）');
@@ -100,7 +156,7 @@
       google.script.run
         .withSuccessHandler(function(result) {
           if (result.success) {
-            setStatus('success', '✅ ルート計算完了！スプレッドシートのplanシートを確認してください。');
+            setStatus('success', '✅ ルート計算完了！planシートを確認してください。');
           } else {
             setStatus('error', 'エラー: ' + result.error);
           }
@@ -111,6 +167,30 @@
           btn.disabled = false;
         })
         .runRouteFromWebApp(shops, startTime);
+    }
+
+    function writeLog() {
+      var message = document.getElementById('message').value.trim();
+      if (!message) { setStatus('error', 'メッセージを入力してください'); return; }
+
+      var btn = document.getElementById('logBtn');
+      btn.disabled = true;
+      setStatus('loading', '配達ログに書き込み中...');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            setStatus('success', '✅ ' + result.written + '行を配達ログに書き込みました。');
+          } else {
+            setStatus('error', 'エラー: ' + result.error);
+          }
+          btn.disabled = false;
+        })
+        .withFailureHandler(function(err) {
+          setStatus('error', 'エラー: ' + err.message);
+          btn.disabled = false;
+        })
+        .writeToDeliveryLog(message, getStartTime());
     }
   </script>
 </body>
