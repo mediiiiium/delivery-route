@@ -7,8 +7,8 @@
 // ▼ 管理対象のシート一覧（LINE通知なしでもチェックボックス・色変えは動く）
 var SHEET_NAMES = ["let's", "kanpai", "Drinkuppers", "RIKRI"];
 
-// ▼ LINE Messaging API 設定
-var LINE_CHANNEL_TOKEN = "yi3eXCgCkfya+Rd13LXs5JyLSC9rrRgNI/WDUe4dP9DoW8UwiCV70FQb4nOLICqS2WkmkGY9ayTu/5ZQ6JPaBIHkHtWOOqP72cRsBtWGNHuLPrmLPW42uu1Y8oxCaJivGH5I8NZxxEu1Wt+oPfnXCAdB04t89/1O/w1cDnyilFU=";
+// ▼ LINE Messaging API 設定（トークンはScriptPropertiesに保存）
+var LINE_CHANNEL_TOKEN = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_TOKEN');
 
 // ▼ シートごとの送信先ID（設定がないシートはLINE通知なし）
 var NOTIFICATION_CONFIG = {
