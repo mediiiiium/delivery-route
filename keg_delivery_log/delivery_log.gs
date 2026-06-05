@@ -31,7 +31,8 @@ var DELIVERED_COLOR = "#D4CFC8";
 
 // ─── 初期セットアップ（全シート一括） ────────────────────────────
 function setup() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var logId = PropertiesService.getScriptProperties().getProperty('KEG_DELIVERY_LOG_ID');
+  var ss = logId ? SpreadsheetApp.openById(logId) : SpreadsheetApp.getActiveSpreadsheet();
   var missing = [];
 
   SHEET_NAMES.forEach(function(name) {
