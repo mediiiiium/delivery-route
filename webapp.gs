@@ -43,6 +43,67 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// ─── GitHub PagesからのAPIリクエストを処理 ─────────────────────
+// LINEのwebhook(doPost)と共存するため、bodyにpinがあればAPIとして処理
+function doPost(e) {
+  // APIリクエスト判定（pinフィールドがあればGitHub Pagesからの呼び出し）
+  try {
+    var body = JSON.parse(e.postData.contents);
+    if (body.hasOwnProperty('pin')) {
+      return handleApiRequest_(body);
+    }
+  } catch(err) {}
+
+  // それ以外はLINE webhook
+  return handleLineWebhook_(e);
+}
+
+function handleApiRequest_(body) {
+  var correctPin = PropertiesService.getScriptProperties().getProperty('WEBAPP_PIN');
+  if (String(body.pin) !== String(correctPin)) {
+    return jsonResponse_({ error: '認証エラー' });
+  }
+  try {
+    switch(body.action) {
+      case 'checkPin':
+        return jsonResponse_({ success: true });  // PINが正しければここに到達
+      case 'extractShops':
+        return jsonResponse_({ success: true, result: extractShopsFromMessage(body.message) });
+      case 'writeLog':
+        return jsonResponse_(writeToDeliveryLog(body.message, body.startTime));
+      case 'calcRoute':
+        return jsonResponse_(runRouteFromWebApp(body.shops, body.startTime));
+      default:
+        return jsonResponse_({ error: '不明なアクション' });
+    }
+  } catch(err) {
+    return jsonResponse_({ error: err.message });
+  }
+}
+
+function jsonResponse_(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleLineWebhook_(e) {
+  var events = JSON.parse(e.postData.contents).events;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var logSheet = ss.getSheetByName('LINE_IDs') || ss.insertSheet('LINE_IDs');
+  events.forEach(function(event) {
+    var source = event.source;
+    var type = source.type;
+    var id = type === 'user'  ? source.userId
+           : type === 'group' ? source.groupId
+           : type === 'room'  ? source.roomId
+           : null;
+    if (!id) return;
+    var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm:ss');
+    logSheet.appendRow([timestamp, type, id]);
+  });
+}
+
 // ─── Claude APIで店名を抽出（ルート計算用） ───────────────────
 function extractShopsFromMessage(message) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
