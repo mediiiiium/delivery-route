@@ -8,7 +8,7 @@
 var SHEET_NAMES = ["let's", "kanpai", "Drinkuppers", "RIKRI"];
 
 // ▼ LINE Messaging API 設定（トークンはScriptPropertiesに保存）
-var LINE_CHANNEL_TOKEN = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_TOKEN');
+// LINE_CHANNEL_TOKEN はsendLine_()内で都度取得
 
 // ▼ シートごとの送信先ID（設定がないシートはLINE通知なし）
 var NOTIFICATION_CONFIG = {
@@ -167,10 +167,11 @@ function onEditTrigger(e) {
 
 // ─── LINE Messaging API 送信 ──────────────────────────────────
 function sendLine_(to, message) {
+  var token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_TOKEN');
   UrlFetchApp.fetch("https://api.line.me/v2/bot/message/push", {
     method: "post",
     headers: {
-      "Authorization": "Bearer " + LINE_CHANNEL_TOKEN,
+      "Authorization": "Bearer " + token,
       "Content-Type": "application/json"
     },
     payload: JSON.stringify({
