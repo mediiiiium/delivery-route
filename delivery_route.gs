@@ -1,7 +1,7 @@
 /**
  * 設定：Google Cloud Consoleで取得したAPIキーと、拠点の住所を入力
  */
-const GOOGLE_MAPS_API_KEY = 'AIzaSyArZEK07d7b6tzcmvsIpMYmpaTN06vYsHQ';
+const GOOGLE_MAPS_API_KEY = PropertiesService.getScriptProperties().getProperty('GOOGLE_MAPS_API_KEY');
 const START_POINT = '東京都文京区水道２丁目１２−１０ 北島ビル'; // 拠点の住所を入力
 
 const VALID_AREAS = ["東京都", "神奈川県", "埼玉県", "千葉県", "Tokyo", "Kanagawa", "Saitama", "Chiba"];
