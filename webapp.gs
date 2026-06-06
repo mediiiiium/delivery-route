@@ -143,21 +143,39 @@ function extractShopsFromMessage(message) {
   return result;
 }
 
-// ─── conversion_dict を適用
+// ─── conversion_dict を適用（プレフィックス保持）
 function applyConversionDict_(text) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dictSheet = ss.getSheetByName('conversion_dict');
   if (!dictSheet) return text;
 
   var dictData = dictSheet.getDataRange().getValues();
-  var result = text;
-  for (var i = 1; i < dictData.length; i++) {
-    var input = String(dictData[i][0]).trim();
-    var output = String(dictData[i][1]).trim();
-    if (input && output) {
-      result = result.replace(new RegExp(input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), output);
+  var lines = text.split('\n');
+  var result = lines.map(function(line) {
+    var trimmed = line.trim();
+    var prefix = '';
+    var body = trimmed;
+
+    // プレフィックス（@ または *）を抽出
+    var match = trimmed.match(/^([@*]+)(.*)$/);
+    if (match) {
+      prefix = match[1];
+      body = match[2].trim();
     }
-  }
+
+    // conversion_dict で変換
+    for (var i = 1; i < dictData.length; i++) {
+      var input = String(dictData[i][0]).trim();
+      var output = String(dictData[i][1]).trim();
+      if (input && output && body === input) {
+        body = output;
+        break;
+      }
+    }
+
+    return prefix ? prefix + body : trimmed;
+  }).join('\n');
+
   return result;
 }
 
