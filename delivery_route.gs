@@ -292,6 +292,22 @@ function processAdvancedDeliveryRoute() {
   let searchLogs = [];
   let failedToFindShops = [];
 
+  // ★ conversion_dict を読み込んで、店舗名を変換
+  const dictSheet = ss.getSheetByName('conversion_dict');
+  const dictMap = {};
+  if (dictSheet) {
+    const dictData = dictSheet.getDataRange().getValues();
+    for (let i = 1; i < dictData.length; i++) {
+      const input = String(dictData[i][0]).trim();
+      const output = String(dictData[i][1]).trim();
+      if (input && output) {
+        dictMap[input] = output;
+      }
+    }
+  }
+
+  rawNames = rawNames.map(name => dictMap[name] || name);
+
   rawNames.forEach(name => {
     let isPickup = name.includes("@");
     let isMemo = name.trimStart().startsWith("*");
@@ -314,14 +330,21 @@ function processAdvancedDeliveryRoute() {
     }
   });
 
-  // 見つからなかった店舗をtaproom_masterに追加（ユーザーが手で埋める）
+  // 見つからなかった店舗をconversion_dictに追加（ユーザーが正式名を入力）
   if (failedToFindShops.length > 0) {
-    failedToFindShops.forEach(name => {
-      const lastRow = masterSheet.getLastRow();
-      masterSheet.getRange(lastRow + 1, 1).setValue(name);
-      // 他の列は空のまま（ユーザーが入力）
-    });
-    const detail = "以下の" + failedToFindShops.length + "店舗が見つかりませんでした。\ntaproom_masterに追加しました。\n住所と営業時間を手入力してください。\n\n" + failedToFindShops.join("\n");
+    const dictSheet = ss.getSheetByName('conversion_dict');
+    if (dictSheet) {
+      failedToFindShops.forEach(name => {
+        const lastRow = dictSheet.getLastRow();
+        const existingData = dictSheet.getRange('A:A').getValues();
+        const exists = existingData.some(row => String(row[0]).trim() === name.trim());
+        if (!exists) {
+          dictSheet.getRange(lastRow + 1, 1).setValue(name);
+          // B列（正式名）は空のまま（ユーザーが入力）
+        }
+      });
+    }
+    const detail = "以下の" + failedToFindShops.length + "店舗が見つかりませんでした。\nconversion_dictに追加しました。\n正式名を入力してください。\n\n" + failedToFindShops.join("\n");
     Browser.msgBox("⚠️ 入力不完全:\n\n" + detail);
     return;
   }

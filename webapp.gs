@@ -137,7 +137,28 @@ function extractShopsFromMessage(message) {
     }
   });
 
-  return results.join('\n');
+  var result = results.join('\n');
+  // ★ conversion_dict を適用して店舗名を変換
+  result = applyConversionDict_(result);
+  return result;
+}
+
+// ─── conversion_dict を適用
+function applyConversionDict_(text) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dictSheet = ss.getSheetByName('conversion_dict');
+  if (!dictSheet) return text;
+
+  var dictData = dictSheet.getDataRange().getValues();
+  var result = text;
+  for (var i = 1; i < dictData.length; i++) {
+    var input = String(dictData[i][0]).trim();
+    var output = String(dictData[i][1]).trim();
+    if (input && output) {
+      result = result.replace(new RegExp(input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), output);
+    }
+  }
+  return result;
 }
 
 // ─── 配達ログに書き込む ────────────────────────────────────────
