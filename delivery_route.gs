@@ -337,9 +337,15 @@ function processAdvancedDeliveryRoute() {
       failedToFindShops.forEach(name => {
         const lastRow = dictSheet.getLastRow();
         const existingData = dictSheet.getRange('A:A').getValues();
-        const exists = existingData.some(row => String(row[0]).trim() === name.trim());
+        // プレフィックス（@*）を除いた本体で重複チェック
+        const cleanName = name.replace(/^[@*]+/, '').trim();
+        const exists = existingData.some(row => {
+          const cleanRow = String(row[0]).replace(/^[@*]+/, '').trim();
+          return cleanRow === cleanName;
+        });
         if (!exists) {
-          dictSheet.getRange(lastRow + 1, 1).setValue(name);
+          // プレフィックスを除いて保存
+          dictSheet.getRange(lastRow + 1, 1).setValue(cleanName);
           // B列（正式名）は空のまま（ユーザーが入力）
         }
       });
