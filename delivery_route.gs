@@ -302,9 +302,10 @@ function processAdvancedDeliveryRoute() {
         seenPlaceIds.add(shopData.placeId);
       } else {
         searchLogs.push(`「${name}」→ 住所が無効 (${shopData.address})`);
+        failedToFindShops.push(name);
       }
-    } else if (!shopData) {
-      // 見つからなかった店舗を記録
+    } else {
+      // 見つからなかった店舗を記録（shopDataがnull、またはplaceIdがない）
       failedToFindShops.push(name);
     }
   });
