@@ -286,6 +286,7 @@ function processAdvancedDeliveryRoute() {
   let targetShops = [];
   let seenPlaceIds = new Set();
   let searchLogs = [];
+  let failedToFindShops = [];
 
   rawNames.forEach(name => {
     let isPickup = name.includes("@");
@@ -302,8 +303,23 @@ function processAdvancedDeliveryRoute() {
       } else {
         searchLogs.push(`「${name}」→ 住所が無効 (${shopData.address})`);
       }
+    } else if (!shopData) {
+      // 見つからなかった店舗を記録
+      failedToFindShops.push(name);
     }
   });
+
+  // 見つからなかった店舗をtaproom_masterに追加（ユーザーが手で埋める）
+  if (failedToFindShops.length > 0) {
+    failedToFindShops.forEach(name => {
+      const lastRow = masterSheet.getLastRow();
+      masterSheet.getRange(lastRow + 1, 1).setValue(name);
+      // 他の列は空のまま（ユーザーが入力）
+    });
+    const detail = "以下の" + failedToFindShops.length + "店舗が見つかりませんでした。\ntaproom_masterに追加しました。\n住所と営業時間を手入力してください。\n\n" + failedToFindShops.join("\n");
+    Browser.msgBox("⚠️ 入力不完全:\n\n" + detail);
+    return;
+  }
 
   if (targetShops.length === 0) {
     const detail = searchLogs.length > 0 ? "\n\n詳細:\n" + searchLogs.join("\n") : "";
