@@ -503,11 +503,19 @@ function deduplicateMaster() {
 }
 
 /**
- * 5a. placeId が空の行を Google Maps で自動埋め
+ * 5a. placeId が空の行を Google Maps で自動埋め（重複削除機能付き）
  */
 function fillEmptyPlaceIds_(masterSheet) {
   const rows = masterSheet.getDataRange().getValues();
   const updates = [];
+  const existingPlaceIds = new Set();
+  let rowsToDelete = [];
+
+  // 既存のplaceIDを全て集める
+  for (let i = 1; i < rows.length; i++) {
+    const placeId = String(rows[i][2]).trim();
+    if (placeId) existingPlaceIds.add(placeId);
+  }
 
   for (let i = 1; i < rows.length; i++) { // 0は見出し
     const row = rows[i];
@@ -526,6 +534,12 @@ function fillEmptyPlaceIds_(masterSheet) {
 
       const cand = res.candidates[0];
       if (!VALID_AREAS.some(area => cand.formatted_address.includes(area))) continue;
+
+      // ★ placeId が既に存在すれば、この行を削除対象に（新しい方を削除）
+      if (existingPlaceIds.has(cand.place_id)) {
+        rowsToDelete.push(i + 1);
+        continue;
+      }
 
       // Place Details 取得
       const det = JSON.parse(UrlFetchApp.fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${cand.place_id}&fields=name,opening_hours,geometry&key=${GOOGLE_MAPS_API_KEY}&language=ja`).getContentText());
@@ -550,10 +564,14 @@ function fillEmptyPlaceIds_(masterSheet) {
         lng: result.geometry.location.lng,
         h: h
       });
+      existingPlaceIds.add(cand.place_id);
     } catch (e) {
       // エラーは無視して次の行へ
     }
   }
+
+  // 重複行を削除（下から上へ）
+  rowsToDelete.reverse().forEach(row => masterSheet.deleteRow(row));
 
   // 一括更新
   updates.forEach(u => {
