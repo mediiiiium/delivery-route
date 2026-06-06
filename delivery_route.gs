@@ -276,7 +276,7 @@ function processAdvancedDeliveryRoute() {
   }
 
   let waitThresholdMin = inputSheet.getRange("D2").getValue() || 30;
-  const rawNames = inputText.split(/[,\n、]+/).map(n => n.trim()).filter(n => n.length > 0);
+  let rawNames = inputText.split(/[,\n、]+/).map(n => n.trim()).filter(n => n.length > 0);
   const dayIdx = startTime.getDay();
 
   // マスター重複を自動削除してからキャッシュ構築
