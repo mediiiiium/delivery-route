@@ -281,6 +281,10 @@ function processAdvancedDeliveryRoute() {
 
   // マスター重複を自動削除してからキャッシュ構築
   deduplicateMaster();
+
+  // ★ placeId が空の行を Google Maps で自動埋め
+  fillEmptyPlaceIds_(masterSheet);
+
   const masterCache = loadMasterCache(masterSheet);
 
   let targetShops = [];
@@ -496,6 +500,76 @@ function deduplicateMaster() {
   // 下から消さないとインデックスがずれる
   rowsToDelete.reverse().forEach(row => masterSheet.deleteRow(row));
   Browser.msgBox(`重複削除完了：${rowsToDelete.length} 行削除しました。`);
+}
+
+/**
+ * 5a. placeId が空の行を Google Maps で自動埋め
+ */
+function fillEmptyPlaceIds_(masterSheet) {
+  const rows = masterSheet.getDataRange().getValues();
+  const updates = [];
+
+  for (let i = 1; i < rows.length; i++) { // 0は見出し
+    const row = rows[i];
+    const shopName = String(row[0]).trim();
+    const placeId = String(row[2]).trim();
+
+    if (!shopName || placeId) continue; // 名前がない または placeId が既に埋まっている
+
+    // Google Maps で検索
+    try {
+      const query = `${shopName} クラフトビール 東京`;
+      const findUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=place_id,formatted_address&key=${GOOGLE_MAPS_API_KEY}`;
+      const res = JSON.parse(UrlFetchApp.fetch(findUrl).getContentText());
+
+      if (!res.candidates || res.candidates.length === 0) continue;
+
+      const cand = res.candidates[0];
+      if (!VALID_AREAS.some(area => cand.formatted_address.includes(area))) continue;
+
+      // Place Details 取得
+      const det = JSON.parse(UrlFetchApp.fetch(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${cand.place_id}&fields=name,opening_hours,geometry&key=${GOOGLE_MAPS_API_KEY}&language=ja`).getContentText());
+      const result = det.result;
+
+      // 営業時間を解析
+      let h = {0:"不明", 1:"不明", 2:"不明", 3:"不明", 4:"不明", 5:"不明", 6:"不明"};
+      if (result.opening_hours && result.opening_hours.weekday_text) {
+        result.opening_hours.weekday_text.forEach((t, idx) => {
+          let timePart = t.split(/:\s+/)[1] || "不明";
+          h[(idx + 1) % 7] = normalizeHours(timePart);
+        });
+      }
+
+      // 行 i+1（シートのN+1行）に書き込み
+      updates.push({
+        row: i + 1,
+        name: result.name,
+        address: cand.formatted_address,
+        placeId: cand.place_id,
+        lat: result.geometry.location.lat,
+        lng: result.geometry.location.lng,
+        h: h
+      });
+    } catch (e) {
+      // エラーは無視して次の行へ
+    }
+  }
+
+  // 一括更新
+  updates.forEach(u => {
+    masterSheet.getRange(u.row, 1).setValue(u.name);
+    masterSheet.getRange(u.row, 2).setValue(u.address);
+    masterSheet.getRange(u.row, 3).setValue(u.placeId);
+    masterSheet.getRange(u.row, 4).setValue(u.h[1]);
+    masterSheet.getRange(u.row, 5).setValue(u.h[2]);
+    masterSheet.getRange(u.row, 6).setValue(u.h[3]);
+    masterSheet.getRange(u.row, 7).setValue(u.h[4]);
+    masterSheet.getRange(u.row, 8).setValue(u.h[5]);
+    masterSheet.getRange(u.row, 9).setValue(u.h[6]);
+    masterSheet.getRange(u.row, 10).setValue(u.h[0]);
+    masterSheet.getRange(u.row, 11).setValue(u.lat);
+    masterSheet.getRange(u.row, 12).setValue(u.lng);
+  });
 }
 
 /**
