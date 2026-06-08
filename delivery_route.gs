@@ -310,7 +310,9 @@ function processAdvancedDeliveryRoute() {
       }
     } else {
       // 見つからなかった店舗を記録（shopDataがnull、またはplaceIdがない）
-      failedToFindShops.push(name);
+      // searchLogs から理由を探す
+      const reason = searchLogs.find(log => log.includes(name)) || '見つかりません';
+      failedToFindShops.push({ name: name, reason: reason });
     }
   });
 
@@ -820,7 +822,11 @@ function renderRoute(sheet, route, failedShops, startTime, dataMatrix, startRow,
   }
   sheet.getRange(startRow, 8).setValue(`${Math.floor(totalMin/60)}h ${totalMin%60}m`);
   if (failedShops.length > 0) {
-    sheet.getRange(startRow + 1, 7).setValue("⚠️ " + failedShops.map(s => s.name).join(", "));
+    const failedText = failedShops.map(s => {
+      const reason = s.reason ? ` (${s.reason})` : '';
+      return s.name + reason;
+    }).join(" | ");
+    sheet.getRange(startRow + 1, 7).setValue("⚠️ " + failedText);
   }
 
   return dataRow + route.length; // 次の空き行
