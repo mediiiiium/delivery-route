@@ -36,7 +36,7 @@ function importFromSheet() {
     });
     if (alreadyExists) { skipped++; return; }
 
-    const shopData = getOrUpdateStoreMaster(name, masterSheet, masterCache, logs);
+    const shopData = getOrUpdateStoreMaster(name, masterSheet, masterCache, logs, ss);
     if (shopData) { added++; } else { failed++; }
     Utilities.sleep(250);
   });
@@ -113,7 +113,7 @@ function importFromTakeout() {
     if (alreadyExists) { skipped++; return; }
 
     // Places API で詳細を取得してマスターに追加
-    const shopData = getOrUpdateStoreMaster(title, masterSheet, masterCache, logs);
+    const shopData = getOrUpdateStoreMaster(title, masterSheet, masterCache, logs, ss);
     if (shopData) { added++; } else { failed++; }
 
     Utilities.sleep(250); // レート制限対策
@@ -292,26 +292,10 @@ function processAdvancedDeliveryRoute() {
   let searchLogs = [];
   let failedToFindShops = [];
 
-  // ★ conversion_dict を読み込んで、店舗名を変換
-  const dictSheet = ss.getSheetByName('conversion_dict');
-  const dictMap = {};
-  if (dictSheet) {
-    const dictData = dictSheet.getDataRange().getValues();
-    for (let i = 1; i < dictData.length; i++) {
-      const input = String(dictData[i][0]).trim();
-      const output = String(dictData[i][1]).trim();
-      if (input && output) {
-        dictMap[input] = output;
-      }
-    }
-  }
-
-  rawNames = rawNames.map(name => dictMap[name] || name);
-
   rawNames.forEach(name => {
     let isPickup = name.includes("@");
     let isMemo = name.trimStart().startsWith("*");
-    let shopData = getOrUpdateStoreMaster(name, masterSheet, masterCache, searchLogs);
+    let shopData = getOrUpdateStoreMaster(name, masterSheet, masterCache, searchLogs, ss);
 
     if (shopData && shopData.placeId && !seenPlaceIds.has(shopData.placeId)) {
       if (shopData.address && !["日本", "Japan"].includes(shopData.address)) {
@@ -634,7 +618,7 @@ function loadMasterCache(masterSheet) {
 /**
  * 5b. マスター管理（キャッシュ経由で重複を防ぐ）
  */
-function getOrUpdateStoreMaster(shopName, masterSheet, masterCache, logs) {
+function getOrUpdateStoreMaster(shopName, masterSheet, masterCache, logs, ss) {
   const baseName = shopName.replace(/^[@*]+/, "").replace(/\*.*$/, "").trim();
   const cleanSearchName = baseName.replace(/\s+/g, "").toLowerCase();
   if (!cleanSearchName) return null;
@@ -647,8 +631,34 @@ function getOrUpdateStoreMaster(shopName, masterSheet, masterCache, logs) {
     }
   }
 
-  // ② Places API で検索（候補を順に試す）
-  const query = `${baseName} クラフトビール 東京`;
+  // ② conversion_dict で変換を試す
+  let convertedName = baseName;
+  const dictSheet = ss.getSheetByName('conversion_dict');
+  if (dictSheet) {
+    const dictData = dictSheet.getDataRange().getValues();
+    for (let i = 1; i < dictData.length; i++) {
+      const input = String(dictData[i][0]).trim();
+      const output = String(dictData[i][1]).trim();
+      if (input && output && baseName === input) {
+        convertedName = output;
+        break;
+      }
+    }
+  }
+
+  // ③ 変換後の名前でキャッシュから再検索
+  if (convertedName !== baseName) {
+    const cleanConvertedName = convertedName.replace(/\s+/g, "").toLowerCase();
+    for (const entry of masterCache.rows) {
+      const masterName = String(entry.name).replace(/\s+/g, "").toLowerCase();
+      if (masterName.length >= 2 && (masterName.includes(cleanConvertedName) || cleanConvertedName.includes(masterName))) {
+        return entry;
+      }
+    }
+  }
+
+  // ④ Places API で検索（候補を順に試す）
+  const query = `${convertedName} クラフトビール 東京`;
   try {
     const findUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=place_id,formatted_address&key=${GOOGLE_MAPS_API_KEY}`;
     const res = JSON.parse(UrlFetchApp.fetch(findUrl).getContentText());
