@@ -138,6 +138,10 @@ function extractShopsFromMessage(message) {
   });
 
   var result = results.join('\n');
+  // ★ 「・」を削除（Claude が勝手につけることがあるため）
+  result = result.split('\n').map(function(line) {
+    return line.replace(/^・\s*/, '');
+  }).join('\n');
   // ★ conversion_dict を適用して店舗名を変換
   result = applyConversionDict_(result);
   return result;
