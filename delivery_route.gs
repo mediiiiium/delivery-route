@@ -434,7 +434,9 @@ function buildRoute(shops, startPos, startTime, dataMatrix, waitThresholdMin) {
         deferred.push(unvisited.splice(i, 1)[0]);
       } else if (unvisited[i]._failed) {
         delete unvisited[i]._failed;
-        failedShops.push(unvisited.splice(i, 1)[0]);
+        const shop = unvisited.splice(i, 1)[0];
+        shop.reason = '営業時間に間に合いません';
+        failedShops.push(shop);
       }
     }
 
@@ -449,6 +451,7 @@ function buildRoute(shops, startPos, startTime, dataMatrix, waitThresholdMin) {
       // 閉店前（end > nowMin）の店はまだ訪問可能
       let stillReachable = deferred.filter(s => s.slots.some(sl => sl.end > nowMin));
       let unreachable    = deferred.filter(s => !s.slots.some(sl => sl.end > nowMin));
+      unreachable.forEach(s => { s.reason = '閉店時間に間に合いません'; });
       failedShops = failedShops.concat(unreachable);
       if (stillReachable.length > 0) {
         // 現在時刻より未来に開く店があれば時刻を進める（既に営業中なら進めない）
