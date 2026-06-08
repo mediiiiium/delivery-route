@@ -353,7 +353,7 @@ function processAdvancedDeliveryRoute() {
   const { route: route1, failedShops } = multiStartOptimize(targetShops, START_POINT, startTime, dataMatrix, waitThresholdMin);
 
   // シートをクリアして描画
-  inputSheet.getRange("A5:H200").clearContent();
+  inputSheet.getRange("A5:H200").clear(); // 内容と書式を両方クリア
 
   const route1EndRow = renderRoute(inputSheet, route1, failedShops, startTime, dataMatrix, 5, "【ルート①】");
 
