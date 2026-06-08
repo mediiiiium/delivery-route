@@ -305,8 +305,9 @@ function processAdvancedDeliveryRoute() {
         targetShops.push(shopData);
         seenPlaceIds.add(shopData.placeId);
       } else {
-        searchLogs.push(`「${name}」→ 住所が無効 (${shopData.address})`);
-        failedToFindShops.push(name);
+        const reason = `住所が無効 (${shopData.address})`;
+        searchLogs.push(`「${name}」→ ${reason}`);
+        failedToFindShops.push({ name: name, reason: reason });
       }
     } else {
       // 見つからなかった店舗を記録（shopDataがnull、またはplaceIdがない）
@@ -320,7 +321,8 @@ function processAdvancedDeliveryRoute() {
   if (failedToFindShops.length > 0) {
     const dictSheet = ss.getSheetByName('conversion_dict');
     if (dictSheet) {
-      failedToFindShops.forEach(name => {
+      failedToFindShops.forEach(item => {
+        const name = item.name || item; // オブジェクトまたは文字列に対応
         const lastRow = dictSheet.getLastRow();
         const existingData = dictSheet.getRange('A:A').getValues();
         // プレフィックス（@*）を除いた本体で重複チェック
